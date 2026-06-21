@@ -1,59 +1,71 @@
 import time
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
 from pages.base_page import BasePage
 
 
 class ShopPage(BasePage):
 
+    PRODUCT_ITEMS = (By.CSS_SELECTOR, "li.product")
+
     def load(self):
         self.open("/#/shop")
         self.wait_for_url("#/shop")
         self.wait_for_angular()
-        # Wait for any h4 (product names) to appear
-        self.wait.until(lambda d: len(d.find_elements(By.TAG_NAME, "h4")) > 0)
-
-        # Dump shop DOM once so we know actual structure
-        src = self.driver.page_source
-        print("\n\n===== SHOP PAGE SOURCE =====")
-        print(src[:6000])
-        print("===== END SHOP SOURCE =====\n\n")
+        self.wait.until(EC.presence_of_all_elements_located(self.PRODUCT_ITEMS))
         return self
 
-    def _find_buy_button(self, product_name):
-        strategies = [
-            f"//li[.//h4[normalize-space()='{product_name}']]//a[contains(@class,'btn')]",
-            f"//div[.//h4[normalize-space()='{product_name}']]//a[contains(@class,'btn')]",
-            f"//h4[normalize-space()='{product_name}']/following::a[contains(@class,'btn')][1]",
-            f"//h4[contains(normalize-space(),'{product_name}')]/following::a[contains(@class,'btn')][1]",
-            f"//*[contains(text(),'{product_name}')]/ancestor::*[position()<=5]//a[contains(@class,'btn')]",
-            # Broader: any button that follows the product name
-            f"//*[normalize-space(text())='{product_name}']/following::a[1]",
-        ]
-        for xpath in strategies:
-            els = self.driver.find_elements(By.XPATH, xpath)
-            if els:
-                return els[0]
-        return None
+    def _get_cart_count(self):
+        """Read current cart count from the nav badge."""
+        els = self.driver.find_elements(By.CSS_SELECTOR, "span.cart-count")
+        if els:
+            try:
+                return int(els[0].text.strip())
+            except ValueError:
+                return 0
+        return 0
+
+    def _click_buy_for_product(self, product_name):
+        """
+        Find the Buy <a> inside the product card and trigger ng-click via JS
+        WITHOUT following href="" which would navigate away and reset the cart.
+        """
+        # Find all product li elements
+        items = self.driver.find_elements(By.CSS_SELECTOR, "li.product")
+        for item in items:
+            h4s = item.find_elements(By.CSS_SELECTOR, "h4.product-title")
+            if h4s and h4s[0].text.strip() == product_name:
+                btn = item.find_element(By.CSS_SELECTOR, "a.btn")
+                # Use JS click to fire ng-click without following href=""
+                self.driver.execute_script("arguments[0].click();", btn)
+                return True
+        return False
 
     def buy_product(self, product_name, quantity):
-        for i in range(quantity):
-            self.open("/#/shop")
-            self.wait_for_url("#/shop")
-            self.wait_for_angular()
-            self.wait.until(lambda d: len(d.find_elements(By.TAG_NAME, "h4")) > 0)
-            time.sleep(0.5)
+        """
+        Stay on the shop page the entire time — reload only once at the start.
+        Click Buy via JS each time to prevent href="" navigation.
+        """
+        self.load()  # Navigate to shop once
 
-            btn = self._find_buy_button(product_name)
-            if btn is None:
-                src = self.driver.page_source
+        for i in range(quantity):
+            before = self._get_cart_count()
+            success = self._click_buy_for_product(product_name)
+
+            if not success:
                 raise Exception(
-                    f"Buy button not found for '{product_name}' on iteration {i+1}.\n"
-                    f"Page source:\n{src[1500:5000]}"
+                    f"Product '{product_name}' not found on shop page (iteration {i+1}). "
+                    f"Available products: "
+                    f"{[el.text for el in self.driver.find_elements(By.CSS_SELECTOR, 'h4.product-title')]}"
                 )
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", btn)
+
+            # Wait for cart count to increment — confirms the item was added
             try:
-                btn.click()
+                self.wait.until(lambda d: self._get_cart_count() > before)
             except Exception:
-                self.driver.execute_script("arguments[0].click();", btn)
-            time.sleep(0.4)
+                raise Exception(
+                    f"Cart count did not increase after clicking Buy for '{product_name}' "
+                    f"(iteration {i+1}). Count before: {before}, after: {self._get_cart_count()}"
+                )
+
         return self

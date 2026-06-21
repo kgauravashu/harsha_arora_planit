@@ -5,28 +5,34 @@ from pages.base_page import BasePage
 
 
 class CartPage(BasePage):
+    """
+    Cart page DOM (confirmed from page source):
+    - Cart items rendered inside ng-view when cart.getCount() > 0
+    - Empty cart shows: <div class="alert"><strong>Your cart is empty</strong></div>
+    - Populated cart: table with rows per product
+    """
 
     def load(self):
         self.open("/#/cart")
         self.wait_for_url("#/cart")
         self.wait_for_angular()
-        time.sleep(2)  # let Angular fully render cart contents
+        time.sleep(1.5)  # allow ng-view to render cart contents
 
-        # Dump page source to stdout so CI logs show us the real DOM
-        src = self.driver.page_source
-        print("\n\n===== CART PAGE SOURCE =====")
-        print(src[:8000])
-        print("===== END CART SOURCE =====\n\n")
+        # Confirm cart is NOT empty before proceeding
+        empty = self.driver.find_elements(By.XPATH, "//*[contains(text(),'cart is empty')]")
+        if empty and empty[0].is_displayed():
+            raise Exception(
+                "Cart is empty on load — products were not added successfully. "
+                "Check shop_page.buy_product()."
+            )
+
+        # Wait for table rows to appear
+        self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr")))
         return self
 
     def get_rows(self):
         rows_data = []
-        # Try table rows first
-        rows = self.driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
-        if not rows:
-            # Fallback: any tr on the page
-            rows = self.driver.find_elements(By.CSS_SELECTOR, "tr")
-
+        rows = self.find_all((By.CSS_SELECTOR, "table tbody tr"))
         for row in rows:
             cells = row.find_elements(By.TAG_NAME, "td")
             if len(cells) < 4:
@@ -48,13 +54,12 @@ class CartPage(BasePage):
             (By.ID, "total"),
             (By.XPATH, "//tfoot//td[contains(.,'$')]"),
             (By.XPATH, "//strong[contains(.,'$')]"),
-            (By.XPATH, "//*[contains(@class,'total') and contains(.,'$')]"),
-            (By.XPATH, "//*[contains(text(),'Total')]/../*[contains(.,'$')]"),
+            (By.XPATH, "//*[contains(@class,'total')]"),
         ]
         for locator in strategies:
             els = self.driver.find_elements(*locator)
             for el in els:
-                text = el.text.strip()
-                if text and ("$" in text or any(c.isdigit() for c in text)):
-                    return text.replace("$", "").strip()
-        raise Exception("Could not find cart total. URL: " + self.driver.current_url)
+                text = el.text.strip().replace("$", "").strip()
+                if text and any(c.isdigit() for c in text):
+                    return text
+        raise Exception("Could not locate cart grand total.")
