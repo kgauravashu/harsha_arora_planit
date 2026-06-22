@@ -1,0 +1,55 @@
+name: UI Test Automation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  ui-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
+            | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -q
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Run tests
+        env:
+          HEADLESS: "true"
+        # -s = show print() output in CI logs (critical for DOM diagnostics)
+        run: pytest -s --html=report.html --self-contained-html -v
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: report.html
+
+      - name: Upload failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-screenshots
+          path: failure_screenshots/
+          if-no-files-found: ignore
