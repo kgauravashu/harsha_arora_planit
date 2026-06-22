@@ -7,11 +7,6 @@ from pages.base_page import BasePage
 class CartPage(BasePage):
 
     def load(self):
-        """
-        CRITICAL: Angular cart state is in-memory (not persisted).
-        Must navigate via clicking the Cart nav link — NOT driver.get()
-        which triggers a full page reload and wipes the Angular $scope.
-        """
         cart_link = self.wait.until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "li#nav-cart a"))
         )
@@ -20,18 +15,16 @@ class CartPage(BasePage):
         self.wait_for_angular()
         time.sleep(1.5)
 
-        # Confirm cart has items
         empty = self.driver.find_elements(By.XPATH, "//*[contains(text(),'cart is empty')]")
         if empty and empty[0].is_displayed():
-            raise Exception("Cart is empty — items were not persisted. Cart state was lost.")
+            raise Exception("Cart is empty — items were not persisted.")
 
         self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr")))
         return self
 
     def get_rows(self):
         rows_data = []
-        rows = self.find_all((By.CSS_SELECTOR, "table tbody tr"))
-        for row in rows:
+        for row in self.find_all((By.CSS_SELECTOR, "table tbody tr")):
             cells = row.find_elements(By.TAG_NAME, "td")
             if len(cells) < 4:
                 continue
@@ -56,7 +49,12 @@ class CartPage(BasePage):
         ]
         for locator in strategies:
             for el in self.driver.find_elements(*locator):
-                text = el.text.strip().replace("$", "").strip()
+                text = el.text.strip()
+                # Strip label prefix e.g. "Total: 116.9" or "$116.90"
+                text = text.replace("$", "")
+                if ":" in text:
+                    text = text.split(":")[-1]
+                text = text.strip()
                 if text and any(c.isdigit() for c in text):
                     return text
         raise Exception("Could not locate cart grand total.")
