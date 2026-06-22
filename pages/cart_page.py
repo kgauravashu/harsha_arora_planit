@@ -5,28 +5,26 @@ from pages.base_page import BasePage
 
 
 class CartPage(BasePage):
-    """
-    Cart page DOM (confirmed from page source):
-    - Cart items rendered inside ng-view when cart.getCount() > 0
-    - Empty cart shows: <div class="alert"><strong>Your cart is empty</strong></div>
-    - Populated cart: table with rows per product
-    """
 
     def load(self):
-        self.open("/#/cart")
+        """
+        CRITICAL: Angular cart state is in-memory (not persisted).
+        Must navigate via clicking the Cart nav link — NOT driver.get()
+        which triggers a full page reload and wipes the Angular $scope.
+        """
+        cart_link = self.wait.until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "li#nav-cart a"))
+        )
+        cart_link.click()
         self.wait_for_url("#/cart")
         self.wait_for_angular()
-        time.sleep(1.5)  # allow ng-view to render cart contents
+        time.sleep(1.5)
 
-        # Confirm cart is NOT empty before proceeding
+        # Confirm cart has items
         empty = self.driver.find_elements(By.XPATH, "//*[contains(text(),'cart is empty')]")
         if empty and empty[0].is_displayed():
-            raise Exception(
-                "Cart is empty on load — products were not added successfully. "
-                "Check shop_page.buy_product()."
-            )
+            raise Exception("Cart is empty — items were not persisted. Cart state was lost.")
 
-        # Wait for table rows to appear
         self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr")))
         return self
 
@@ -57,8 +55,7 @@ class CartPage(BasePage):
             (By.XPATH, "//*[contains(@class,'total')]"),
         ]
         for locator in strategies:
-            els = self.driver.find_elements(*locator)
-            for el in els:
+            for el in self.driver.find_elements(*locator):
                 text = el.text.strip().replace("$", "").strip()
                 if text and any(c.isdigit() for c in text):
                     return text
