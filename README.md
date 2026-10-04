@@ -15,6 +15,7 @@ harsha_arora_planit
 │   └── cart_page.py
 ├── tests/
 │   ├── conftest.py
+│   ├── expected_data.py                (expected UI copy + test inputs)
 │   ├── test_case1_contact_validation.py
 │   ├── test_case2_contact_success.py   (parametrized x5)
 │   └── test_case3_cart_totals.py
@@ -26,11 +27,9 @@ harsha_arora_planit
 ## Run locally
 ```bash
 pip install -r requirements.txt
-# Requires Chrome + chromedriver on PATH
+# Requires Chrome; Selenium Manager fetches the matching driver
 pytest
 ```
-
-Set `HEADLESS=false` to watch the browser.
 
 ## Test cases
 - **Case 1**: Contact page mandatory field validation — empty submit shows errors, filling fields removes them.

@@ -2,54 +2,70 @@ name: UI Test Automation
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
+
+# Tests only need to read the repo; deny everything else by default.
+permissions:
+  contents: read
+
+# A newer push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ui-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
+      # Actions are pinned to commit SHAs (version in comment): tags are
+      # mutable, so a compromised tag could otherwise run in this job.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Chrome
-        run: |
-          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
-          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" \
-            | sudo tee /etc/apt/sources.list.d/google-chrome.list
-          sudo apt-get update -q
-          sudo apt-get install -y google-chrome-stable
+      # No Chrome install step: the ubuntu-latest image ships Chrome, and
+      # Selenium Manager fetches the matching driver. This removes the earlier
+      # `apt-key add` (which trusted Google's key for *every* apt repo) and the
+      # plain-http apt source.
+      - name: Show browser version
+        run: google-chrome --version
 
       - name: Run tests
         env:
           HEADLESS: "true"
-        # -s = show print() output in CI logs (critical for DOM diagnostics)
-        run: pytest -s --html=report.html --self-contained-html -v
+        # Report options live in pytest.ini so local and CI runs match.
+        run: pytest
 
       - name: Upload HTML report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: test-report
           path: report.html
+          retention-days: 14
 
       - name: Upload failure screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: failure-screenshots
           path: failure_screenshots/
           if-no-files-found: ignore
+          retention-days: 14
