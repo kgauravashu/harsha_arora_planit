@@ -1,30 +1,25 @@
 import pytest
-from pages.home_page import HomePage
+
 from pages.contact_page import ContactPage
+from pages.home_page import HomePage
+from tests.expected_data import CONTACT_SUCCESS_TEMPLATE
 
 
+# Five runs of the same journey are a deliberate stability check (the brief
+# asks for 100% pass rate), so each run uses distinct data to avoid any
+# false pass from state left over by a previous submission.
 @pytest.mark.parametrize("run", range(1, 6))
 def test_contact_form_successful_submission(driver, run):
-    home    = HomePage(driver)
-    contact = ContactPage(driver)
+    forename = f"Tester{run}"
 
-    # 1. From home page go to contact page
-    home.load()
-    home.go_to_contact()
-    contact.wait_for_form()
+    HomePage(driver).load().go_to_contact()
+    contact = ContactPage(driver).wait_for_form()
 
-    # 2. Populate mandatory fields
     contact.fill_mandatory_fields(
-        forename=f"Tester{run}",
+        forename=forename,
         email=f"tester{run}@example.com",
-        message=f"Automated test submission run {run}."
+        message=f"Automated test submission run {run}.",
     )
-
-    # 3. Click Submit
     contact.click_submit()
 
-    # 4. Validate successful submission message
-    success_text = contact.get_success_message()
-    assert success_text, f"Run {run}: No success message found"
-    assert any(kw in success_text for kw in ["Thanks", "thank", "success", "submitted"]), \
-        f"Run {run}: Unexpected success message: '{success_text}'"
+    assert contact.get_success_message() == CONTACT_SUCCESS_TEMPLATE.format(forename=forename)

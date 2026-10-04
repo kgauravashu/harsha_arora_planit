@@ -1,48 +1,45 @@
 import os
+
 import pytest
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+
+FAILURE_DIR = "failure_screenshots"
 
 
-def get_driver():
+def _build_options():
     options = Options()
     if os.environ.get("HEADLESS", "true").lower() == "true":
         options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--ignore-certificate-errors")
-
-    try:
-        from webdriver_manager.chrome import ChromeDriverManager
-        service = Service(ChromeDriverManager().install())
-        return webdriver.Chrome(service=service, options=options)
-    except Exception:
-        return webdriver.Chrome(options=options)
+    # Chrome's sandbox cannot start inside most CI containers; locally we
+    # keep it on, so the flag is only added when the CI env var is set.
+    if os.environ.get("CI"):
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")  # small /dev/shm in containers
+    return options
 
 
 @pytest.fixture
 def driver(request):
-    drv = get_driver()
-    drv.implicitly_wait(0)
+    # Selenium Manager (bundled with selenium >= 4.6) resolves a matching
+    # chromedriver, so no third-party driver downloader is needed.
+    drv = webdriver.Chrome(options=_build_options())
     yield drv
 
-    # On failure: save screenshot + page source for debugging
-    if request.node.rep_call.failed if hasattr(request.node, "rep_call") else False:
-        screenshot_dir = "failure_screenshots"
-        os.makedirs(screenshot_dir, exist_ok=True)
-        safe_name = request.node.name.replace("/", "_").replace(":", "_")
-        drv.save_screenshot(f"{screenshot_dir}/{safe_name}.png")
-        with open(f"{screenshot_dir}/{safe_name}_source.html", "w") as f:
-            f.write(drv.page_source)
+    report = getattr(request.node, "rep_call", None)
+    if report is not None and report.failed:
+        os.makedirs(FAILURE_DIR, exist_ok=True)
+        name = request.node.name.replace("/", "_").replace(":", "_")
+        drv.save_screenshot(f"{FAILURE_DIR}/{name}.png")
+        with open(f"{FAILURE_DIR}/{name}_source.html", "w", encoding="utf-8") as fh:
+            fh.write(drv.page_source)
 
     drv.quit()
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
+    # Exposes each phase's result to fixtures so teardown can tell if the test failed.
     outcome = yield
-    rep = outcome.get_result()
-    setattr(item, f"rep_{rep.when}", rep)
+    setattr(item, f"rep_{outcome.get_result().when}", outcome.get_result())
